@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-
+import gc
 import pdb
 
 from utils import AverageMeter, calculate_accuracy
@@ -37,13 +37,27 @@ print(model)
 
 batch_time = AverageMeter()
 input_var = Variable(torch.randn(8, 3, 16, 112, 112))
-end_time = time.time()
+torch.cuda.empty_cache()
+gc.collect()
+
+
+# GPU warm-up phase
+for _ in range(50):
+    _ = model(input_var)
+
+start_event = torch.cuda.Event(enable_timing=True)
+end_event = torch.cuda.Event(enable_timing=True)
+time_list = []
 
 for i in range(1000):
+    start_event.record()  
+    output = model(input_var)
+    end_event.record()  
+    
+    end_event.synchronize()
+    
+    time_list.append(start_event.elapsed_time(end_event) / 1000.0)  
 
-	output = model(input_var)
-	batch_time.update(time.time() - end_time)
-	end_time = time.time()
-	print("Current average time: ", batch_time.avg, "Speed (vps): ", 1 / (batch_time.avg / 8.0) )
-
-print("Average time for CPU: ", batch_time.avg, "Speed (vps): ", 1 / (batch_time.avg / 8.0))
+avg_time = sum(time_list[5:]) / len(time_list[5:])
+print(f"Average time per forward pass: {avg_time:.5f} seconds")
+print(f"Speed (vps): {1 / avg_time * 8:.2f} vps")  
